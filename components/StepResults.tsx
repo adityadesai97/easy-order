@@ -74,14 +74,21 @@ export default function StepResults({ result, peopleCount, onContinue, onReset }
       )}
 
       {/* Adequacy badge */}
-      <div className={`rounded-xl border p-4 ${status.bg} ${status.border}`}>
-        <div className="flex items-center gap-2 mb-1">
-          <span className={`text-sm font-semibold ${status.text}`}>
-            {status.label}
-          </span>
+      {result.orders.length === 0 ? (
+        <div className="rounded-xl border p-4 bg-gray-100 border-gray-200">
+          <span className="text-sm font-semibold text-gray-700">No orders detected</span>
+          <p className="text-sm text-gray-500 mt-1">Try continuing and speaking your order clearly, or start over.</p>
         </div>
-        <p className={`text-sm ${status.text}`}>{result.analysis.comment}</p>
-      </div>
+      ) : (
+        <div className={`rounded-xl border p-4 ${status.bg} ${status.border}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-sm font-semibold ${status.text}`}>
+              {status.label}
+            </span>
+          </div>
+          <p className={`text-sm ${status.text}`}>{result.analysis.comment}</p>
+        </div>
+      )}
 
       <button
         onClick={onContinue}

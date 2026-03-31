@@ -102,14 +102,20 @@ export default function StepInput({
                     {session.peopleCount === 1 ? "person" : "people"}
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                        statusStyle[session.result.analysis.status] ??
-                        statusStyle.adequate
-                      }`}
-                    >
-                      {statusLabel[session.result.analysis.status] ?? "—"}
-                    </span>
+                    {session.result.orders.length === 0 ? (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                        No orders
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                          statusStyle[session.result.analysis.status] ??
+                          statusStyle.adequate
+                        }`}
+                      >
+                        {statusLabel[session.result.analysis.status] ?? "—"}
+                      </span>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
