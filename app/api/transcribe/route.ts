@@ -1,3 +1,5 @@
+export const maxDuration = 30;
+
 function normalizeAudioType(mimeType: string): { ext: string; type: string } {
   if (mimeType.includes("ogg")) return { ext: "ogg", type: "audio/ogg" };
   if (mimeType.includes("mp4")) return { ext: "mp4", type: "audio/mp4" };
@@ -16,7 +18,10 @@ export async function POST(request: Request) {
     console.log("Audio received — size:", audio.size, "type:", audio.type);
 
     const { ext, type } = normalizeAudioType(audio.type);
+    console.log("Normalized type:", type, "ext:", ext);
+
     const file = new File([audio], `audio.${ext}`, { type });
+    console.log("File created — size:", file.size, "name:", file.name);
 
     const body = new FormData();
     body.append("file", file);
@@ -24,17 +29,24 @@ export async function POST(request: Request) {
     body.append("response_format", "json");
     body.append("language", "en");
 
+    console.log("Calling Groq...");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+
     const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      },
+      headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
       body,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
+    console.log("Groq responded:", res.status);
 
     if (!res.ok) {
       const err = await res.text();
-      console.error("Groq error:", res.status, err.slice(0, 500));
+      console.error("Groq error:", res.status, err);
       return Response.json({ error: err }, { status: 500 });
     }
 
@@ -42,7 +54,6 @@ export async function POST(request: Request) {
     const text = data.text?.trim() ?? "";
     console.log("Transcribed:", text.slice(0, 100));
 
-    // Discard known Whisper hallucinations on silence
     const HALLUCINATIONS = ["thank you", "thanks for watching", "subtitles by", "www.", ".com"];
     const lower = text.toLowerCase();
     if (HALLUCINATIONS.some((h) => lower.includes(h)) && text.split(/\s+/).length < 5) {
