@@ -129,7 +129,7 @@ export default function StepListening({ onComplete }: Props) {
       ws.onclose = (event) => {
         setIsConnected(false);
         if (!cancelled && !isFlushing && event.code !== 1000 && event.code !== 1001) {
-          setError(`Connection closed unexpectedly (${event.code}). Please try again.`);
+          setError(`Connection closed (${event.code}${event.reason ? ": " + event.reason : ""}). Please try again.`);
         }
       };
     }
