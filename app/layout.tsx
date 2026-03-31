@@ -5,6 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Easy Order",
   description: "Group dining order assistant",
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({

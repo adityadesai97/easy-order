@@ -1,5 +1,6 @@
 "use client";
 
+import BrandLogo from "@/components/BrandLogo";
 import type { Session } from "@/lib/types";
 
 interface Props {
@@ -43,8 +44,8 @@ export default function StepInput({
   return (
     <div className="flex flex-col items-center gap-8 w-full">
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Easy Order</h1>
-        <p className="mt-2 text-gray-500">
+        <BrandLogo className="justify-center" />
+        <p className="mt-4 text-gray-500">
           Let the table talk. We&apos;ll figure out the order.
         </p>
       </div>
