@@ -28,7 +28,10 @@ export async function POST(request: Request) {
 
     const text = transcription.text?.trim() ?? "";
 
-    if (text.split(/\s+/).filter(Boolean).length < 3) {
+    // Discard known Whisper hallucinations on silence
+    const HALLUCINATIONS = ["thank you", "thanks for watching", "subtitles by", "www.", ".com"];
+    const lower = text.toLowerCase();
+    if (HALLUCINATIONS.some((h) => lower.includes(h)) && text.split(/\s+/).length < 5) {
       return Response.json({ text: "" });
     }
 

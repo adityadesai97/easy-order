@@ -147,7 +147,7 @@ export default function StepListening({ onComplete }: Props) {
         pendingUploads.current.push(p);
       };
 
-      recorder.start(30000);
+      recorder.start(10000);
       setElapsedSeconds(0);
       setHasStarted(true);
 
