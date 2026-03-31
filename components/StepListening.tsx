@@ -22,6 +22,7 @@ export default function StepListening({ onComplete }: Props) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const onCompleteRef = useRef(onComplete);
+  const stoppedRef = useRef(false);
   onCompleteRef.current = onComplete;
 
   const appendFinal = useCallback((text: string) => {
@@ -36,8 +37,12 @@ export default function StepListening({ onComplete }: Props) {
   useEffect(() => {
     let cancelled = false;
 
-    async function start() {
-      // 1. Get temporary token (keeps API key server-side)
+    // Connects (or reconnects) the WebSocket only — audio pipeline stays alive.
+    // Safe to call multiple times; always uses wsRef so the processor
+    // automatically targets the latest connection.
+    async function connectWebSocket() {
+      if (cancelled || stoppedRef.current) return;
+
       let token: string;
       try {
         const res = await fetch("/api/realtime-token");
@@ -50,59 +55,16 @@ export default function StepListening({ onComplete }: Props) {
         return;
       }
 
-      if (cancelled) return;
+      if (cancelled || stoppedRef.current) return;
 
-      // 2. Request microphone
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        streamRef.current = stream;
-      } catch (e: unknown) {
-        if (cancelled) return;
-        const name = (e as { name?: string }).name;
-        if (name === "NotAllowedError") {
-          setError("Microphone access was denied. Please allow microphone access and try again.");
-        } else {
-          setError("Could not access microphone. Please check your device settings.");
-        }
-        return;
-      }
-
-      if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-
-      // 3. Set up audio pipeline: getUserMedia → AudioContext (16 kHz) → ScriptProcessor → PCM Int16
-      const audioContext = new AudioContext({ sampleRate: 16000 });
-      audioContextRef.current = audioContext;
-      const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-
-      // 4. Open AssemblyAI Streaming STT v3 WebSocket
       const ws = new WebSocket(
         `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&speech_model=u3-rt-pro&token=${token}`
       );
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (cancelled) { ws.close(); return; }
+        if (cancelled || stoppedRef.current) { ws.close(); return; }
         setIsConnected(true);
-        timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-
-        processor.onaudioprocess = (e) => {
-          if (ws.readyState !== WebSocket.OPEN) return;
-          const float32 = e.inputBuffer.getChannelData(0);
-          const int16 = new Int16Array(float32.length);
-          for (let i = 0; i < float32.length; i++) {
-            int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-          }
-          ws.send(int16.buffer);
-        };
-
-        source.connect(processor);
-        processor.connect(audioContext.destination);
       };
 
       ws.onmessage = (event) => {
@@ -123,15 +85,66 @@ export default function StepListening({ onComplete }: Props) {
       };
 
       ws.onerror = () => {
-        if (!cancelled) setError("Transcription connection error. Please try again.");
+        if (!cancelled && !stoppedRef.current) setError("Transcription connection error. Please try again.");
       };
 
       ws.onclose = (event) => {
         setIsConnected(false);
-        if (!cancelled && !isFlushing && event.code !== 1000 && event.code !== 1001) {
+        if (cancelled || stoppedRef.current) return;
+        if (event.reason?.toLowerCase().includes("expir")) {
+          // Token expired — silently reconnect with a fresh token
+          connectWebSocket();
+        } else if (event.code !== 1000 && event.code !== 1001) {
           setError(`Connection closed (${event.code}${event.reason ? ": " + event.reason : ""}). Please try again.`);
         }
       };
+    }
+
+    async function start() {
+      // 1. Request microphone
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        streamRef.current = stream;
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const name = (e as { name?: string }).name;
+        setError(
+          name === "NotAllowedError"
+            ? "Microphone access was denied. Please allow microphone access and try again."
+            : "Could not access microphone. Please check your device settings."
+        );
+        return;
+      }
+
+      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+
+      // 2. Set up audio pipeline once: getUserMedia → AudioContext (16 kHz) → PCM Int16
+      const audioContext = new AudioContext({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      // Processor always writes to wsRef.current — works across reconnects
+      processor.onaudioprocess = (e) => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+        const float32 = e.inputBuffer.getChannelData(0);
+        const int16 = new Int16Array(float32.length);
+        for (let i = 0; i < float32.length; i++) {
+          int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
+        }
+        wsRef.current.send(int16.buffer);
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      // 3. Start timer
+      timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+
+      // 4. Open first WebSocket connection
+      await connectWebSocket();
     }
 
     start();
@@ -152,13 +165,13 @@ export default function StepListening({ onComplete }: Props) {
   }, [finalTranscript, partialText]);
 
   const handleDone = () => {
+    stoppedRef.current = true;
     setIsFlushing(true);
     if (timerRef.current) clearInterval(timerRef.current);
     processorRef.current?.disconnect();
     streamRef.current?.getTracks().forEach((t) => t.stop());
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Ask AssemblyAI to flush and terminate; onmessage Termination fires onComplete
       wsRef.current.send(JSON.stringify({ type: "Terminate" }));
     } else {
       onCompleteRef.current(finalRef.current);
