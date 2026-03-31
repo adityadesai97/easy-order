@@ -44,6 +44,7 @@ export default function StepListening({ onComplete }: Props) {
   const [isFlushing, setIsFlushing] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [permissionState, setPermissionState] = useState<PermissionState | null>(null);
   const [error, setError] = useState<RecordingError | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -64,6 +65,7 @@ export default function StepListening({ onComplete }: Props) {
       const status = await navigator.permissions.query({
         name: "microphone" as PermissionName,
       });
+      setPermissionState(status.state);
       return status.state;
     } catch {
       return null;
@@ -167,6 +169,10 @@ export default function StepListening({ onComplete }: Props) {
   }, [getMicPermissionState, uploadChunk]);
 
   useEffect(() => {
+    void getMicPermissionState();
+  }, [getMicPermissionState]);
+
+  useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (
@@ -246,10 +252,14 @@ export default function StepListening({ onComplete }: Props) {
         <div className="space-y-2">
           <p className="text-gray-800 font-medium">Ready to record the table.</p>
           <p className="text-sm text-gray-500 max-w-xs">
-            Tap below to let your browser request microphone access.
+            {permissionState === "granted"
+              ? "Your microphone is ready. Tap below to start recording."
+              : "Tap below to let your browser request microphone access."}
           </p>
           <p className="text-xs text-gray-400 max-w-xs">
-            If your browser does not show a prompt, check the site permissions and make sure microphone access is allowed.
+            {permissionState === "granted"
+              ? "You can start recording right away."
+              : "If your browser does not show a prompt, check the site permissions and make sure microphone access is allowed."}
           </p>
         </div>
         <button
@@ -257,7 +267,11 @@ export default function StepListening({ onComplete }: Props) {
           disabled={isStarting}
           className="w-full max-w-xs rounded-lg bg-indigo-600 px-6 py-4 text-lg font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          {isStarting ? "Starting..." : "Allow Microphone and Start"}
+          {isStarting
+            ? "Starting..."
+            : permissionState === "granted"
+              ? "Start"
+              : "Allow Microphone and Start"}
         </button>
       </div>
     );
