@@ -37,7 +37,8 @@ export async function POST(request: Request) {
 
     return Response.json({ text });
   } catch (err) {
-    console.error("Transcribe error:", err);
-    return Response.json({ error: "Transcription failed" }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Transcribe error:", message);
+    return Response.json({ error: message }, { status: 500 });
   }
 }

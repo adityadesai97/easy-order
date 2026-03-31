@@ -90,8 +90,9 @@ export default function StepListening({ onComplete }: Props) {
     (blob: Blob, index: number) => {
       const upload = async () => {
         try {
+          const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "mp4" : "webm";
           const formData = new FormData();
-          formData.append("audio", blob);
+          formData.append("audio", blob, `audio.${ext}`);
           const res = await fetch("/api/transcribe", {
             method: "POST",
             body: formData,
