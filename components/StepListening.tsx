@@ -89,10 +89,11 @@ export default function StepListening({ onComplete }: Props) {
       };
 
       ws.onclose = (event) => {
-        setIsConnected(false);
-        if (cancelled || stoppedRef.current) return;
-        if (event.reason?.toLowerCase().includes("expir")) {
-          // Token expired — silently reconnect with a fresh token
+        if (cancelled || stoppedRef.current) { setIsConnected(false); return; }
+        const isExpiry = event.reason?.toLowerCase().includes("expir");
+        if (!isExpiry) setIsConnected(false);
+        if (isExpiry) {
+          // Token expired — silently reconnect, keep UI showing as connected
           connectWebSocket();
         } else if (event.code !== 1000 && event.code !== 1001) {
           setError(`Connection closed (${event.code}${event.reason ? ": " + event.reason : ""}). Please try again.`);
