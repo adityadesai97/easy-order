@@ -1,5 +1,3 @@
-import Groq from "groq-sdk";
-
 function extFromMimeType(mimeType: string): string {
   if (mimeType.includes("ogg")) return "ogg";
   if (mimeType.includes("mp4")) return "mp4";
@@ -18,15 +16,28 @@ export async function POST(request: Request) {
     const ext = extFromMimeType(audio.type);
     const file = new File([audio], `audio.${ext}`, { type: audio.type });
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-    const transcription = await groq.audio.transcriptions.create({
-      file,
-      model: "whisper-large-v3-turbo",
-      response_format: "json",
-      language: "en",
+    const body = new FormData();
+    body.append("file", file);
+    body.append("model", "whisper-large-v3-turbo");
+    body.append("response_format", "json");
+    body.append("language", "en");
+
+    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body,
     });
 
-    const text = transcription.text?.trim() ?? "";
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("Groq error:", res.status, err);
+      return Response.json({ error: err }, { status: 500 });
+    }
+
+    const data = (await res.json()) as { text?: string };
+    const text = data.text?.trim() ?? "";
 
     // Discard known Whisper hallucinations on silence
     const HALLUCINATIONS = ["thank you", "thanks for watching", "subtitles by", "www.", ".com"];
