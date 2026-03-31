@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const apiKey = process.env.ASSEMBLYAI_API_KEY?.trim();
   if (!apiKey) {
