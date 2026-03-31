@@ -170,8 +170,10 @@ export default function StepListening({ onComplete }: Props) {
   }, [getMicPermissionState, uploadChunk]);
 
   useEffect(() => {
-    void getMicPermissionState();
-  }, [getMicPermissionState]);
+    getMicPermissionState().then((state) => {
+      if (state === "granted") startRecording();
+    });
+  }, [getMicPermissionState, startRecording]);
 
   useEffect(() => {
     return () => {
