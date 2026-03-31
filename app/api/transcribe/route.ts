@@ -1,4 +1,5 @@
 import Groq from "groq-sdk";
+import { createClient } from "@/lib/supabase/server";
 
 function extFromMimeType(mimeType: string): string {
   if (mimeType.includes("ogg")) return "ogg";
@@ -8,6 +9,22 @@ function extFromMimeType(mimeType: string): string {
 
 export async function POST(request: Request) {
   try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data: settings } = await supabase
+      .from("user_settings")
+      .select("groq_api_key")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!settings?.groq_api_key) {
+      return Response.json({ error: "Groq API key not configured" }, { status: 400 });
+    }
+
     const formData = await request.formData();
     const audio = formData.get("audio") as Blob | null;
 
@@ -18,7 +35,7 @@ export async function POST(request: Request) {
     const ext = extFromMimeType(audio.type);
     const file = new File([audio], `audio.${ext}`, { type: audio.type });
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    const groq = new Groq({ apiKey: settings.groq_api_key });
     const transcription = await groq.audio.transcriptions.create({
       file,
       model: "whisper-large-v3-turbo",
@@ -28,7 +45,6 @@ export async function POST(request: Request) {
 
     const text = transcription.text?.trim() ?? "";
 
-    // Discard Whisper hallucinations on silence (fewer than 3 words)
     if (text.split(/\s+/).filter(Boolean).length < 3) {
       return Response.json({ text: "" });
     }
