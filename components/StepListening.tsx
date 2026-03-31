@@ -82,7 +82,7 @@ export default function StepListening({ onComplete }: Props) {
 
       // 4. Open AssemblyAI real-time WebSocket
       const ws = new WebSocket(
-        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`
+        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&api_key=${token}`
       );
       wsRef.current = ws;
 
