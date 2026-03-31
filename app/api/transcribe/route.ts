@@ -1,7 +1,7 @@
-function extFromMimeType(mimeType: string): string {
-  if (mimeType.includes("ogg")) return "ogg";
-  if (mimeType.includes("mp4")) return "mp4";
-  return "webm";
+function normalizeAudioType(mimeType: string): { ext: string; type: string } {
+  if (mimeType.includes("ogg")) return { ext: "ogg", type: "audio/ogg" };
+  if (mimeType.includes("mp4")) return { ext: "mp4", type: "audio/mp4" };
+  return { ext: "webm", type: "audio/webm" };
 }
 
 export async function POST(request: Request) {
@@ -13,8 +13,10 @@ export async function POST(request: Request) {
       return Response.json({ text: "" });
     }
 
-    const ext = extFromMimeType(audio.type);
-    const file = new File([audio], `audio.${ext}`, { type: audio.type });
+    console.log("Audio received — size:", audio.size, "type:", audio.type);
+
+    const { ext, type } = normalizeAudioType(audio.type);
+    const file = new File([audio], `audio.${ext}`, { type });
 
     const body = new FormData();
     body.append("file", file);
@@ -32,12 +34,13 @@ export async function POST(request: Request) {
 
     if (!res.ok) {
       const err = await res.text();
-      console.error("Groq error:", res.status, err);
+      console.error("Groq error:", res.status, err.slice(0, 500));
       return Response.json({ error: err }, { status: 500 });
     }
 
     const data = (await res.json()) as { text?: string };
     const text = data.text?.trim() ?? "";
+    console.log("Transcribed:", text.slice(0, 100));
 
     // Discard known Whisper hallucinations on silence
     const HALLUCINATIONS = ["thank you", "thanks for watching", "subtitles by", "www.", ".com"];
