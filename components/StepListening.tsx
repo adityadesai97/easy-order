@@ -40,6 +40,8 @@ export default function StepListening({ onComplete }: Props) {
   const [transcript, setTranscript] = useState("");
   const [chunkCount, setChunkCount] = useState(0);
   const [isFlushing, setIsFlushing] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
   const [error, setError] = useState<RecordingError | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -94,56 +96,53 @@ export default function StepListening({ onComplete }: Props) {
     [flushCompletedChunks]
   );
 
-  useEffect(() => {
-    if (typeof MediaRecorder === "undefined") {
+  const startRecording = useCallback(async () => {
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setError("NOT_SUPPORTED");
       return;
     }
 
-    let cancelled = false;
+    setIsStarting(true);
+    setError(null);
 
-    const start = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
 
-        const mimeType = getMimeType();
-        const recorder = new MediaRecorder(stream, { mimeType });
-        mediaRecorderRef.current = recorder;
+      const mimeType = getMimeType();
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
 
-        recorder.ondataavailable = (e) => {
-          if (e.data.size === 0) return;
-          const idx = chunkIndex.current++;
-          const p = uploadChunk(e.data, idx);
-          pendingUploads.current.push(p);
-        };
+      recorder.ondataavailable = (e) => {
+        if (e.data.size === 0) return;
+        const idx = chunkIndex.current++;
+        const p = uploadChunk(e.data, idx);
+        pendingUploads.current.push(p);
+      };
 
-        recorder.start(30000);
+      recorder.start(30000);
+      setElapsedSeconds(0);
+      setHasStarted(true);
 
-        timerRef.current = setInterval(() => {
-          setElapsedSeconds((s) => s + 1);
-        }, 1000);
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof DOMException) {
-          if (err.name === "NotAllowedError") setError("MIC_DENIED");
-          else if (err.name === "NotFoundError") setError("MIC_NOT_FOUND");
-          else if (err.name === "NotReadableError") setError("MIC_IN_USE");
-          else setError("UNKNOWN");
-        } else {
-          setError("UNKNOWN");
-        }
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+      }, 1000);
+    } catch (err) {
+      if (err instanceof DOMException) {
+        if (err.name === "NotAllowedError") setError("MIC_DENIED");
+        else if (err.name === "NotFoundError") setError("MIC_NOT_FOUND");
+        else if (err.name === "NotReadableError") setError("MIC_IN_USE");
+        else setError("UNKNOWN");
+      } else {
+        setError("UNKNOWN");
       }
-    };
+    } finally {
+      setIsStarting(false);
+    }
+  }, [uploadChunk]);
 
-    start();
-
+  useEffect(() => {
     return () => {
-      cancelled = true;
       if (timerRef.current) clearInterval(timerRef.current);
       if (
         mediaRecorderRef.current &&
@@ -153,7 +152,7 @@ export default function StepListening({ onComplete }: Props) {
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [uploadChunk]);
+  }, []);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -191,6 +190,42 @@ export default function StepListening({ onComplete }: Props) {
           !
         </div>
         <p className="text-gray-700 max-w-xs">{ERROR_MESSAGES[error]}</p>
+        <button
+          onClick={startRecording}
+          disabled={isStarting}
+          className="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {isStarting ? "Starting..." : "Try Microphone Again"}
+        </button>
+      </div>
+    );
+  }
+
+  if (!hasStarted) {
+    return (
+      <div className="flex flex-col items-center gap-6 text-center">
+        <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl text-indigo-600">
+          <svg
+            className="w-7 h-7"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-1 16.93V20H9v2h6v-2h-2v-2.07A8.001 8.001 0 0 0 20 11h-2a6 6 0 0 1-12 0H4a8.001 8.001 0 0 0 7 7.93z" />
+          </svg>
+        </div>
+        <div className="space-y-2">
+          <p className="text-gray-800 font-medium">Ready to record the table.</p>
+          <p className="text-sm text-gray-500 max-w-xs">
+            Tap below to let your browser request microphone access.
+          </p>
+        </div>
+        <button
+          onClick={startRecording}
+          disabled={isStarting}
+          className="w-full max-w-xs rounded-lg bg-indigo-600 px-6 py-4 text-lg font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {isStarting ? "Starting..." : "Allow Microphone and Start"}
+        </button>
       </div>
     );
   }
