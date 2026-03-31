@@ -5,6 +5,7 @@ import type { OrderResult } from "@/lib/types";
 interface Props {
   result: OrderResult;
   peopleCount: number;
+  onContinue: () => void;
   onReset: () => void;
 }
 
@@ -29,7 +30,7 @@ const statusConfig = {
   },
 };
 
-export default function StepResults({ result, peopleCount, onReset }: Props) {
+export default function StepResults({ result, peopleCount, onContinue, onReset }: Props) {
   const status = statusConfig[result.analysis.status] ?? statusConfig.adequate;
 
   return (
@@ -81,6 +82,13 @@ export default function StepResults({ result, peopleCount, onReset }: Props) {
         </div>
         <p className={`text-sm ${status.text}`}>{result.analysis.comment}</p>
       </div>
+
+      <button
+        onClick={onContinue}
+        className="w-full rounded-lg bg-gray-900 px-6 py-4 text-lg font-semibold text-white hover:bg-gray-700 transition-colors"
+      >
+        Continue Ordering
+      </button>
 
       <button
         onClick={onReset}

@@ -13,10 +13,17 @@ export default function Home() {
   const [peopleCount, setPeopleCount] = useState(2);
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
   const [analyzeError, setAnalyzeError] = useState("");
+  const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
 
   const handleStart = () => setStep("listening");
 
-  const handleListeningComplete = async (transcript: string) => {
+  const handleContinue = () => setStep("listening");
+
+  const handleListeningComplete = async (newTranscript: string) => {
+    const transcript = accumulatedTranscript
+      ? accumulatedTranscript + " " + newTranscript
+      : newTranscript;
+    setAccumulatedTranscript(transcript);
     setStep("analyzing");
     setAnalyzeError("");
     try {
@@ -43,6 +50,7 @@ export default function Home() {
     setStep("input");
     setOrderResult(null);
     setAnalyzeError("");
+    setAccumulatedTranscript("");
   };
 
   return (
@@ -84,6 +92,7 @@ export default function Home() {
         <StepResults
           result={orderResult}
           peopleCount={peopleCount}
+          onContinue={handleContinue}
           onReset={handleReset}
         />
       )}
