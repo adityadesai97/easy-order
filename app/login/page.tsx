@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [passcode, setPasscode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const trimmedPasscode = passcode.trim();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,13 +18,14 @@ export default function LoginPage() {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passcode }),
+      body: JSON.stringify({ passcode: trimmedPasscode }),
     });
 
     if (res.ok) {
       router.push("/");
     } else {
-      setError("Incorrect passcode.");
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Incorrect passcode.");
       setLoading(false);
     }
   };
@@ -49,7 +51,7 @@ export default function LoginPage() {
 
         <button
           type="submit"
-          disabled={loading || !passcode}
+          disabled={loading || !trimmedPasscode}
           className="w-full rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
         >
           {loading ? "Checking..." : "Enter"}

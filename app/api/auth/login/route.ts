@@ -2,8 +2,17 @@ import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   const { passcode } = (await request.json()) as { passcode: string };
+  const submittedPasscode = passcode?.trim() ?? "";
+  const expectedPasscode = process.env.PASSCODE?.trim() ?? "";
 
-  if (!passcode || passcode !== process.env.PASSCODE) {
+  if (!expectedPasscode) {
+    return NextResponse.json(
+      { error: "Passcode is not configured on the server" },
+      { status: 500 }
+    );
+  }
+
+  if (!submittedPasscode || submittedPasscode !== expectedPasscode) {
     return NextResponse.json({ error: "Incorrect passcode" }, { status: 401 });
   }
 
