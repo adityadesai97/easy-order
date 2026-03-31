@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import StepInput from "@/components/StepInput";
 import StepListening from "@/components/StepListening";
 import StepResults from "@/components/StepResults";
-import type { OrderResult } from "@/lib/types";
+import type { OrderResult, Session } from "@/lib/types";
+import { loadSessions, saveSession, deleteSession } from "@/lib/sessions";
 
 type Step = "input" | "listening" | "analyzing" | "results";
 
@@ -14,8 +15,19 @@ export default function Home() {
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
   const [analyzeError, setAnalyzeError] = useState("");
   const [accumulatedTranscript, setAccumulatedTranscript] = useState("");
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
 
-  const handleStart = () => setStep("listening");
+  useEffect(() => {
+    setSessions(loadSessions());
+  }, []);
+
+  const refreshSessions = () => setSessions(loadSessions());
+
+  const handleStart = () => {
+    setCurrentSessionId(crypto.randomUUID());
+    setStep("listening");
+  };
 
   const handleContinue = () => setStep("listening");
 
@@ -38,6 +50,17 @@ export default function Home() {
       }
       const data = (await res.json()) as OrderResult;
       setOrderResult(data);
+
+      const existing = loadSessions().find((s) => s.id === currentSessionId);
+      saveSession({
+        id: currentSessionId!,
+        createdAt: existing?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+        peopleCount,
+        accumulatedTranscript: transcript,
+        result: data,
+      });
+      refreshSessions();
       setStep("results");
     } catch (err) {
       setAnalyzeError(
@@ -46,11 +69,26 @@ export default function Home() {
     }
   };
 
+  const handleSelectSession = (session: Session) => {
+    setCurrentSessionId(session.id);
+    setPeopleCount(session.peopleCount);
+    setAccumulatedTranscript(session.accumulatedTranscript);
+    setOrderResult(session.result);
+    setAnalyzeError("");
+    setStep("results");
+  };
+
+  const handleDeleteSession = (id: string) => {
+    deleteSession(id);
+    refreshSessions();
+  };
+
   const handleReset = () => {
     setStep("input");
     setOrderResult(null);
     setAnalyzeError("");
     setAccumulatedTranscript("");
+    setCurrentSessionId(null);
   };
 
   return (
@@ -60,6 +98,9 @@ export default function Home() {
           peopleCount={peopleCount}
           onChange={setPeopleCount}
           onStart={handleStart}
+          sessions={sessions}
+          onSelectSession={handleSelectSession}
+          onDeleteSession={handleDeleteSession}
         />
       )}
 

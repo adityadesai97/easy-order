@@ -12,3 +12,12 @@ export interface OrderResult {
     comment: string;
   };
 }
+
+export interface Session {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  peopleCount: number;
+  accumulatedTranscript: string;
+  result: OrderResult;
+}
