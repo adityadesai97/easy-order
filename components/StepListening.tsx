@@ -8,6 +8,7 @@ interface Props {
 
 type RecordingError =
   | "NOT_SUPPORTED"
+  | "INSECURE_CONTEXT"
   | "MIC_DENIED"
   | "MIC_NOT_FOUND"
   | "MIC_IN_USE"
@@ -15,7 +16,8 @@ type RecordingError =
 
 const ERROR_MESSAGES: Record<RecordingError, string> = {
   NOT_SUPPORTED: "Audio recording is not supported in this browser. Please use Chrome or Firefox.",
-  MIC_DENIED: "Microphone access was denied. Please allow microphone access and try again.",
+  INSECURE_CONTEXT: "Microphone access only works on secure HTTPS pages. Please open the live site directly instead of an embedded preview.",
+  MIC_DENIED: "Microphone access is blocked in your browser or site settings. Please allow microphone access for this site, then try again.",
   MIC_NOT_FOUND: "No microphone found. Please connect a microphone and try again.",
   MIC_IN_USE: "Microphone is in use by another app. Please close other apps using the mic.",
   UNKNOWN: "An unexpected error occurred. Please try again.",
@@ -54,6 +56,19 @@ export default function StepListening({ onComplete }: Props) {
   const streamRef = useRef<MediaStream | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const getMicPermissionState = useCallback(async () => {
+    if (!navigator.permissions?.query) return null;
+
+    try {
+      const status = await navigator.permissions.query({
+        name: "microphone" as PermissionName,
+      });
+      return status.state;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const flushCompletedChunks = useCallback(() => {
     while (completedChunks.current[nextFlushIndex.current] !== undefined) {
@@ -101,11 +116,21 @@ export default function StepListening({ onComplete }: Props) {
       setError("NOT_SUPPORTED");
       return;
     }
+    if (!window.isSecureContext) {
+      setError("INSECURE_CONTEXT");
+      return;
+    }
 
     setIsStarting(true);
     setError(null);
 
     try {
+      const permissionState = await getMicPermissionState();
+      if (permissionState === "denied") {
+        setError("MIC_DENIED");
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
@@ -139,7 +164,7 @@ export default function StepListening({ onComplete }: Props) {
     } finally {
       setIsStarting(false);
     }
-  }, [uploadChunk]);
+  }, [getMicPermissionState, uploadChunk]);
 
   useEffect(() => {
     return () => {
@@ -190,6 +215,11 @@ export default function StepListening({ onComplete }: Props) {
           !
         </div>
         <p className="text-gray-700 max-w-xs">{ERROR_MESSAGES[error]}</p>
+        {error === "MIC_DENIED" && (
+          <p className="text-xs text-gray-500 max-w-xs">
+            If no browser prompt appeared, open your browser&apos;s site settings for this page and enable the microphone first.
+          </p>
+        )}
         <button
           onClick={startRecording}
           disabled={isStarting}
@@ -217,6 +247,9 @@ export default function StepListening({ onComplete }: Props) {
           <p className="text-gray-800 font-medium">Ready to record the table.</p>
           <p className="text-sm text-gray-500 max-w-xs">
             Tap below to let your browser request microphone access.
+          </p>
+          <p className="text-xs text-gray-400 max-w-xs">
+            If your browser does not show a prompt, check the site permissions and make sure microphone access is allowed.
           </p>
         </div>
         <button
