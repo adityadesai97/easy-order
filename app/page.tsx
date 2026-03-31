@@ -12,32 +12,37 @@ export default function Home() {
   const [step, setStep] = useState<Step>("input");
   const [peopleCount, setPeopleCount] = useState(2);
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
-  const [analyzeError, setAnalyzeError] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState("");
 
   const handleStart = () => setStep("listening");
 
   const handleListeningComplete = async (transcript: string) => {
     setStep("analyzing");
-    setAnalyzeError(false);
+    setAnalyzeError("");
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcript, peopleCount }),
       });
-      if (!res.ok) throw new Error("analyze failed");
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || "Analyze failed");
+      }
       const data = (await res.json()) as OrderResult;
       setOrderResult(data);
       setStep("results");
-    } catch {
-      setAnalyzeError(true);
+    } catch (err) {
+      setAnalyzeError(
+        err instanceof Error ? err.message : "Something went wrong analyzing your order."
+      );
     }
   };
 
   const handleReset = () => {
     setStep("input");
     setOrderResult(null);
-    setAnalyzeError(false);
+    setAnalyzeError("");
   };
 
   return (
@@ -58,7 +63,7 @@ export default function Home() {
         <div className="flex flex-col items-center gap-4 text-center">
           {analyzeError ? (
             <>
-              <p className="text-gray-700">Something went wrong analyzing your order.</p>
+              <p className="text-gray-700 max-w-sm">{analyzeError}</p>
               <button
                 onClick={handleReset}
                 className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"

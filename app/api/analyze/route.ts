@@ -2,6 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ANALYZE_SYSTEM_PROMPT, buildAnalyzeUserMessage } from "@/lib/prompts";
 import type { OrderResult } from "@/lib/types";
 
+const ANALYZE_MODEL =
+  process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514";
+
 export async function POST(request: Request) {
   try {
     const { transcript, peopleCount } = (await request.json()) as {
@@ -9,10 +12,18 @@ export async function POST(request: Request) {
       peopleCount: number;
     };
 
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+    if (!apiKey) {
+      return Response.json(
+        { error: "Anthropic API key is not configured on the server." },
+        { status: 500 }
+      );
+    }
+
+    const client = new Anthropic({ apiKey });
 
     const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: ANALYZE_MODEL,
       max_tokens: 1024,
       system: ANALYZE_SYSTEM_PROMPT,
       messages: [
@@ -39,6 +50,8 @@ export async function POST(request: Request) {
     return Response.json(result);
   } catch (err) {
     console.error("Analyze error:", err);
-    return Response.json({ error: "Analysis failed" }, { status: 500 });
+    const errorMessage =
+      err instanceof Error ? err.message : "Analysis failed.";
+    return Response.json({ error: errorMessage }, { status: 500 });
   }
 }
