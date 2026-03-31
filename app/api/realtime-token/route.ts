@@ -4,7 +4,16 @@ export async function GET() {
     return Response.json({ error: "AssemblyAI API key not configured." }, { status: 500 });
   }
 
-  // Return the API key as the token — the client passes it via ?api_key= in the WebSocket URL.
-  // The key stays out of the client bundle; the route is protected by session middleware.
-  return Response.json({ token: apiKey });
+  const res = await fetch(
+    "https://streaming.assemblyai.com/v3/token?expires_in_seconds=600",
+    { headers: { Authorization: apiKey } }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    return Response.json({ error: err }, { status: 500 });
+  }
+
+  const data = (await res.json()) as { token: string };
+  return Response.json({ token: data.token });
 }

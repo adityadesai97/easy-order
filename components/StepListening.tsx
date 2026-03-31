@@ -80,9 +80,9 @@ export default function StepListening({ onComplete }: Props) {
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
 
-      // 4. Open AssemblyAI real-time WebSocket
+      // 4. Open AssemblyAI Streaming STT v3 WebSocket
       const ws = new WebSocket(
-        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&api_key=${token}`
+        `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&speech_model=u3-rt-pro&token=${token}`
       );
       wsRef.current = ws;
 
@@ -107,14 +107,17 @@ export default function StepListening({ onComplete }: Props) {
 
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data as string) as {
-          message_type: string;
-          text?: string;
+          type: string;
+          transcript?: string;
+          turn_is_formatted?: boolean;
         };
-        if (msg.message_type === "FinalTranscript" && msg.text) {
-          appendFinal(msg.text);
-        } else if (msg.message_type === "PartialTranscript") {
-          setPartialText(msg.text ?? "");
-        } else if (msg.message_type === "SessionTerminated") {
+        if (msg.type === "Turn") {
+          if (msg.turn_is_formatted) {
+            appendFinal(msg.transcript ?? "");
+          } else {
+            setPartialText(msg.transcript ?? "");
+          }
+        } else if (msg.type === "Termination") {
           onCompleteRef.current(finalRef.current);
         }
       };
@@ -155,8 +158,8 @@ export default function StepListening({ onComplete }: Props) {
     streamRef.current?.getTracks().forEach((t) => t.stop());
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Ask AssemblyAI to flush and terminate; onmessage SessionTerminated fires onComplete
-      wsRef.current.send(JSON.stringify({ terminate_session: true }));
+      // Ask AssemblyAI to flush and terminate; onmessage Termination fires onComplete
+      wsRef.current.send(JSON.stringify({ type: "Terminate" }));
     } else {
       onCompleteRef.current(finalRef.current);
     }
