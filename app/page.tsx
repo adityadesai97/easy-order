@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useState } from "react";
 import StepInput from "@/components/StepInput";
 import StepListening from "@/components/StepListening";
 import StepResults from "@/components/StepResults";
@@ -11,32 +9,10 @@ import type { OrderResult } from "@/lib/types";
 type Step = "input" | "listening" | "analyzing" | "results";
 
 export default function Home() {
-  const router = useRouter();
-  const [ready, setReady] = useState(false);
   const [step, setStep] = useState<Step>("input");
   const [peopleCount, setPeopleCount] = useState(2);
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
   const [analyzeError, setAnalyzeError] = useState(false);
-
-  // Redirect to onboarding if API keys aren't set up yet
-  useEffect(() => {
-    const check = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from("user_settings")
-        .select("groq_api_key, anthropic_api_key")
-        .eq("user_id", user.id)
-        .single();
-      if (!data?.groq_api_key || !data?.anthropic_api_key) {
-        router.replace("/onboarding");
-      } else {
-        setReady(true);
-      }
-    };
-    check();
-  }, [router]);
 
   const handleStart = () => setStep("listening");
 
@@ -64,26 +40,8 @@ export default function Home() {
     setAnalyzeError(false);
   };
 
-  if (!ready) {
-    return (
-      <div className="flex items-center justify-center h-32">
-        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <>
-      {/* Settings link */}
-      <div className="absolute top-4 right-4">
-        <button
-          onClick={() => router.push("/settings")}
-          className="text-sm text-gray-400 hover:text-gray-600"
-        >
-          Settings
-        </button>
-      </div>
-
       {step === "input" && (
         <StepInput
           peopleCount={peopleCount}

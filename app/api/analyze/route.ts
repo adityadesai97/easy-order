@@ -1,32 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createClient } from "@/lib/supabase/server";
 import { ANALYZE_SYSTEM_PROMPT, buildAnalyzeUserMessage } from "@/lib/prompts";
 import type { OrderResult } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: settings } = await supabase
-      .from("user_settings")
-      .select("anthropic_api_key")
-      .eq("user_id", user.id)
-      .single();
-
-    if (!settings?.anthropic_api_key) {
-      return Response.json({ error: "Anthropic API key not configured" }, { status: 400 });
-    }
-
     const { transcript, peopleCount } = (await request.json()) as {
       transcript: string;
       peopleCount: number;
     };
 
-    const client = new Anthropic({ apiKey: settings.anthropic_api_key });
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
