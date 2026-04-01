@@ -109,7 +109,7 @@ export default function StepListening({ onComplete }: Props) {
   }, []);
 
   const mintRealtimeToken = useCallback(async () => {
-    const response = await fetch("/api/realtime-token", { method: "GET" });
+    const response = await fetch("/api/realtime-token", { method: "GET", cache: "no-store" });
     const data = (await response.json()) as RealtimeTokenResponse;
     if (!response.ok || !data.token) {
       throw new Error(data.error || "Failed to mint realtime token.");
