@@ -134,7 +134,7 @@ export default function StepListening({ onComplete }: Props) {
 
   const connectSocket = useCallback(async (token: string) => {
     const ws = new WebSocket(
-      `wss://streaming.assemblyai.com/v3/ws?sample_rate=${SAMPLE_RATE}&token=${encodeURIComponent(token)}`
+      `wss://streaming.assemblyai.com/v3/ws?sample_rate=${SAMPLE_RATE}&speech_model=nano&token=${encodeURIComponent(token)}`
     );
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
