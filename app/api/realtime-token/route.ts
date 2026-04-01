@@ -28,10 +28,10 @@ export async function GET() {
     }
 
     const data = (await res.json()) as { token: string };
-    return Response.json({
-      token: data.token,
-      expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000,
-    });
+    return Response.json(
+      { token: data.token, expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000 },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 500 });
