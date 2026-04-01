@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY?.trim();
 const TOKEN_TTL_SECONDS = 600;
 
