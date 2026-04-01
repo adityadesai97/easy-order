@@ -16,6 +16,7 @@ export async function GET() {
       `https://streaming.assemblyai.com/v3/token?expires_in_seconds=${TOKEN_TTL_SECONDS}`,
       {
         headers: { Authorization: ASSEMBLYAI_API_KEY },
+        cache: "no-store",
       }
     );
 
