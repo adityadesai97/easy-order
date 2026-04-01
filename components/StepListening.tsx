@@ -171,11 +171,12 @@ export default function StepListening({ onComplete }: Props) {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event: CloseEvent) => {
       if (finishedRef.current) {
         completeOnce();
       } else {
-        setError("Transcription connection closed unexpectedly. Please try again.");
+        const detail = event.reason ? `${event.code}: ${event.reason}` : `code ${event.code}`;
+        setError(`Transcription connection closed unexpectedly (${detail}). Please try again.`);
         cleanupAudio();
         clearTimers();
       }
