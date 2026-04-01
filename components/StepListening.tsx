@@ -122,7 +122,7 @@ export default function StepListening({ onComplete }: Props) {
   const scheduleTokenRefresh = useCallback(() => {
     if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
     tokenRefreshTimerRef.current = setTimeout(async () => {
-      if (finishedRef.current || isFlushing) return;
+      if (finishedRef.current) return;
       try {
         await mintRealtimeToken();
       } catch {
@@ -130,7 +130,7 @@ export default function StepListening({ onComplete }: Props) {
       }
       scheduleTokenRefresh();
     }, TOKEN_REFRESH_MS);
-  }, [isFlushing, mintRealtimeToken]);
+  }, [mintRealtimeToken]);
 
   const connectSocket = useCallback(async (token: string) => {
     const ws = new WebSocket(
@@ -158,6 +158,11 @@ export default function StepListening({ onComplete }: Props) {
       }
     };
 
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new Error("WebSocket open failed"));
+    });
+
     ws.onerror = () => {
       if (!finishedRef.current) {
         setError("Realtime transcription connection failed. Please try again.");
@@ -169,13 +174,12 @@ export default function StepListening({ onComplete }: Props) {
     ws.onclose = () => {
       if (finishedRef.current) {
         completeOnce();
+      } else {
+        setError("Transcription connection closed unexpectedly. Please try again.");
+        cleanupAudio();
+        clearTimers();
       }
     };
-
-    await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new Error("WebSocket open failed"));
-    });
   }, [appendFinalText, clearTimers, cleanupAudio, completeOnce, renderPartial]);
 
   const startAudioPipeline = useCallback(async () => {
