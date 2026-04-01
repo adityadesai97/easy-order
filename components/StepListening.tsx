@@ -2,10 +2,24 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const CHUNK_INTERVAL_MS = 5000;
+const DEFAULT_SAMPLE_RATE = 16000;
+const TOKEN_REFRESH_MS = 8 * 60 * 1000;
 
 interface Props {
   onComplete: (transcript: string) => void;
+}
+
+interface RealtimeTokenResponse {
+  token: string;
+  expiresAt: number;
+  error?: string;
+}
+
+interface AssemblyAITurnMessage {
+  type?: string;
+  transcript?: string;
+  turn_is_formatted?: boolean;
+  end_of_turn?: boolean;
 }
 
 export default function StepListening({ onComplete }: Props) {
@@ -16,48 +30,195 @@ export default function StepListening({ onComplete }: Props) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const transcriptRef = useRef("");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const chunkTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const partialRef = useRef("");
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
-  const stoppedRef = useRef(false);
-  const pendingRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
+  const finishedRef = useRef(false);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const tokenRef = useRef<string | null>(null);
+  const tokenExpiresAtRef = useRef<number>(0);
+  const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sampleRateRef = useRef<number>(DEFAULT_SAMPLE_RATE);
+
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onCompleteCalledRef = useRef(false);
+
   onCompleteRef.current = onComplete;
 
-  const appendText = useCallback((text: string) => {
-    if (!text.trim()) return;
-    transcriptRef.current = transcriptRef.current
-      ? transcriptRef.current + " " + text.trim()
-      : text.trim();
-    setTranscript(transcriptRef.current);
+  const completeOnce = useCallback(() => {
+    if (onCompleteCalledRef.current) return;
+    onCompleteCalledRef.current = true;
+    onCompleteRef.current(transcriptRef.current.trim());
   }, []);
 
-  const uploadChunk = useCallback(async (blob: Blob) => {
-    if (!blob.size) return;
-    pendingRef.current += 1;
-    try {
-      const body = new FormData();
-      body.append("audio", blob);
-      const res = await fetch("/api/transcribe", { method: "POST", body });
-      if (res.ok) {
-        const data = (await res.json()) as { text?: string };
-        if (data.text) appendText(data.text);
-      }
-    } catch {
-      // Non-fatal — chunk lost, continue
-    } finally {
-      pendingRef.current -= 1;
-      if (stoppedRef.current && pendingRef.current === 0) {
-        onCompleteRef.current(transcriptRef.current);
-      }
-    }
-  }, [appendText]);
+  const appendFinalText = useCallback((text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    transcriptRef.current = transcriptRef.current
+      ? `${transcriptRef.current} ${clean}`
+      : clean;
+    const rendered = partialRef.current
+      ? `${transcriptRef.current}\n${partialRef.current}`
+      : transcriptRef.current;
+    setTranscript(rendered);
+  }, []);
 
-  const startNewChunk = useCallback((recorder: MediaRecorder) => {
-    if (stoppedRef.current) return;
-    recorder.stop();
-    recorder.start();
+  const renderPartial = useCallback((partial: string) => {
+    partialRef.current = partial.trim();
+    const rendered = partialRef.current
+      ? `${transcriptRef.current}\n${partialRef.current}`
+      : transcriptRef.current;
+    setTranscript(rendered);
+  }, []);
+
+  const cleanupAudio = useCallback(() => {
+    if (processorNodeRef.current) {
+      processorNodeRef.current.disconnect();
+      processorNodeRef.current.onaudioprocess = null;
+      processorNodeRef.current = null;
+    }
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.disconnect();
+      sourceNodeRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => undefined);
+      audioContextRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsRecording(false);
+  }, []);
+
+  const clearTimers = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (tokenRefreshTimerRef.current) {
+      clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
+    }
+  }, []);
+
+  const mintRealtimeToken = useCallback(async () => {
+    const response = await fetch("/api/realtime-token", { method: "GET" });
+    const data = (await response.json()) as RealtimeTokenResponse;
+    if (!response.ok || !data.token) {
+      throw new Error(data.error || "Failed to mint realtime token.");
+    }
+    tokenRef.current = data.token;
+    tokenExpiresAtRef.current = data.expiresAt || Date.now() + 10 * 60 * 1000;
+    return data.token;
+  }, []);
+
+  const scheduleTokenRefresh = useCallback(() => {
+    if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    tokenRefreshTimerRef.current = setTimeout(async () => {
+      if (finishedRef.current || isFlushing) return;
+      try {
+        await mintRealtimeToken();
+      } catch {
+        // keep current socket running; reconnect path will retry minting
+      }
+      scheduleTokenRefresh();
+    }, TOKEN_REFRESH_MS);
+  }, [isFlushing, mintRealtimeToken]);
+
+  const connectSocket = useCallback(async (token: string, sampleRate: number) => {
+    const ws = new WebSocket(
+      `wss://streaming.assemblyai.com/v3/ws?sample_rate=${sampleRate}&token=${encodeURIComponent(token)}`
+    );
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(String(event.data)) as AssemblyAITurnMessage;
+        if (data.type === "Turn") {
+          if (data.turn_is_formatted || data.end_of_turn) {
+            appendFinalText(data.transcript || "");
+            renderPartial("");
+          } else {
+            renderPartial(data.transcript || "");
+          }
+        }
+        if (data.type === "Termination" && finishedRef.current) {
+          completeOnce();
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    };
+
+    ws.onerror = () => {
+      if (!finishedRef.current) {
+        setError("Realtime transcription connection failed. Please try again.");
+        cleanupAudio();
+        clearTimers();
+      }
+    };
+
+    ws.onclose = () => {
+      if (finishedRef.current) {
+        completeOnce();
+      }
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const onOpen = () => {
+        ws.removeEventListener("error", onOpenError);
+        resolve();
+      };
+      const onOpenError = () => {
+        ws.removeEventListener("open", onOpen);
+        reject(new Error("WebSocket open failed"));
+      };
+      ws.addEventListener("open", onOpen, { once: true });
+      ws.addEventListener("error", onOpenError, { once: true });
+    });
+  }, [appendFinalText, clearTimers, cleanupAudio, completeOnce, renderPartial]);
+
+  const startAudioPipeline = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    mediaStreamRef.current = stream;
+
+    const audioContext = new AudioContext({ sampleRate: DEFAULT_SAMPLE_RATE });
+    audioContextRef.current = audioContext;
+    sampleRateRef.current = audioContext.sampleRate || DEFAULT_SAMPLE_RATE;
+
+    const source = audioContext.createMediaStreamSource(stream);
+    sourceNodeRef.current = source;
+
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    processorNodeRef.current = processor;
+
+    processor.onaudioprocess = (event) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN || finishedRef.current) return;
+
+      const input = event.inputBuffer.getChannelData(0);
+      const pcm16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i += 1) {
+        const sample = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      }
+      ws.send(pcm16.buffer);
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    setIsRecording(true);
+    timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
   }, []);
 
   useEffect(() => {
@@ -66,70 +227,61 @@ export default function StepListening({ onComplete }: Props) {
       return;
     }
 
-    let recorder: MediaRecorder;
+    let cancelled = false;
 
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((stream) => {
-      const mimeType =
-        MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-        : "audio/mp4";
-
-      recorder = new MediaRecorder(stream, { mimeType });
-      recorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) uploadChunk(e.data);
-      };
-
-      recorder.start();
-      setIsRecording(true);
-
-      timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-      chunkTimerRef.current = setInterval(() => startNewChunk(recorder), CHUNK_INTERVAL_MS);
-    }).catch((e: unknown) => {
-      const name = (e as { name?: string }).name;
-      setError(
-        name === "NotAllowedError"
-          ? "Microphone access was denied. Please allow microphone access and try again."
-          : "Could not access microphone. Please check your device settings."
-      );
-    });
+    (async () => {
+      try {
+        const token = await mintRealtimeToken();
+        if (cancelled) return;
+        scheduleTokenRefresh();
+        await startAudioPipeline();
+        if (cancelled) return;
+        await connectSocket(token, sampleRateRef.current);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Could not start realtime transcription.";
+        setError(message);
+        cleanupAudio();
+        clearTimers();
+      }
+    })();
 
     return () => {
-      stoppedRef.current = true;
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
-      recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
+      cancelled = true;
+      finishedRef.current = true;
+      clearTimers();
+      cleanupAudio();
+      wsRef.current?.close();
+      wsRef.current = null;
     };
-  }, [uploadChunk, startNewChunk]);
+  }, [clearTimers, cleanupAudio, connectSocket, mintRealtimeToken, scheduleTokenRefresh, startAudioPipeline]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
 
   const handleDone = () => {
-    stoppedRef.current = true;
+    finishedRef.current = true;
     setIsFlushing(true);
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (chunkTimerRef.current) clearInterval(chunkTimerRef.current);
+    clearTimers();
+    cleanupAudio();
 
-    const recorder = recorderRef.current;
-    if (!recorder) { onCompleteRef.current(transcriptRef.current); return; }
+    const ws = wsRef.current;
+    if (!ws) {
+      completeOnce();
+      return;
+    }
 
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        pendingRef.current += 1;
-        uploadChunk(e.data).then(() => {
-          pendingRef.current -= 1;
-          if (pendingRef.current === 0) onCompleteRef.current(transcriptRef.current);
-        });
-      } else if (pendingRef.current === 0) {
-        onCompleteRef.current(transcriptRef.current);
-      }
-    };
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "Terminate" }));
+      setTimeout(() => {
+        ws.close();
+        completeOnce();
+      }, 3000);
+      return;
+    }
 
-    recorder.stop();
-    recorder.stream.getTracks().forEach((t) => t.stop());
+    completeOnce();
   };
 
   const formatTime = (s: number) => {
