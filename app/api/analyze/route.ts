@@ -3,7 +3,7 @@ import { ANALYZE_SYSTEM_PROMPT, buildAnalyzeUserMessage } from "@/lib/prompts";
 import type { OrderResult } from "@/lib/types";
 
 const ANALYZE_MODEL =
-  process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514";
+  process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-5-5";
 
 export async function POST(request: Request) {
   try {

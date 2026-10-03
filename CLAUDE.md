@@ -32,7 +32,7 @@ Required in `.env.local` (local) and Vercel project settings (production):
 | `ASSEMBLYAI_API_KEY` | AssemblyAI Streaming STT |
 | `ANTHROPIC_API_KEY` | Claude order analysis |
 | `SESSION_SECRET` | Passcode cookie value (set to the user's chosen passcode) |
-| `ANTHROPIC_MODEL` | Optional override; defaults to `claude-sonnet-4-20250514` |
+| `ANTHROPIC_MODEL` | Optional override; defaults to `claude-sonnet-5-5` |
 
 ## Architecture
 
